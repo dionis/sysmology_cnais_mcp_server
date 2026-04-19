@@ -88,6 +88,10 @@ Launch the inspector:
     npx @modelcontextprotocol/inspector uv run research_server.py
 
 ```
+
+## Note
+ This MCP server is run in [Horizon Platform](https://www.prefect.io/horizon) in free mode. Using the address https://cneais-earthquake.fastmcp.app/mcp for requesting the mcp server.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -14,59 +14,11 @@ except ImportError:
 import httpx
 from bs4 import BeautifulSoup
 import yaml
+import markdownify
 
 # Initialize the FastMCP server
-mcp = FastMCP("Sysmology CNAIS")
+mcp = FastMCP("Sysmology CNAIS", instructions="You are a helpful assistant that provides information about seismology in Cuba. Get information about the last perceptible earthquake in Cuba, the last 7 days earthquakes in Cuba, the European Macroseismic Scale 1998 and what to do before, during, and after an earthquake. Use the tools below to get the information.")
 
-@mcp.tool()
-async def fetch_html(url: str) -> str:
-    """Make an HTTP GET request to a URL and return the raw HTML content.
-    
-    Args:
-        url: The web URL to fetch (e.g., https://example.com)
-    """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.text
-        except Exception as e:
-            return f"Error fetching {url}: {str(e)}"
-
-@mcp.tool()
-async def scrape_page(url: str, css_selector: Optional[str] = None) -> str:
-    """Scrape text content from an HTML page, optionally filtering by a CSS selector.
-    
-    Args:
-        url: The web URL to scrape.
-        css_selector: (Optional) A valid CSS selector to limit extraction to specific elements.
-                      If not provided, extracts all visible text from the body.
-    """
-    html_content = await fetch_html(url)
-    
-    if html_content.startswith("Error fetching"):
-        return html_content
-
-    # Parse HTML using BeautifulSoup
-    soup = BeautifulSoup(html_content, 'html.parser')
-
-    # Remove script and style elements
-    for script_or_style in soup(["script", "style", "noscript", "meta", "link"]):
-        script_or_style.decompose()
-
-    if css_selector:
-        elements = soup.select(css_selector)
-        if not elements:
-            return f"No elements found matching selector: '{css_selector}'"
-        
-        # Combine text from all matched elements
-        texts = [elem.get_text(separator=' ', strip=True) for elem in elements]
-        return "\n\n".join(texts)
-    else:
-        # Extract text from the whole body
-        if soup.body:
-            return soup.body.get_text(separator='\n', strip=True)
-        return soup.get_text(separator='\n', strip=True)
 
 @mcp.tool()
 async def get_last_perceptible_earthquake(format: str = "JSON") -> str:
@@ -85,6 +37,7 @@ async def get_last_perceptible_earthquake(format: str = "JSON") -> str:
         async with httpx.AsyncClient(verify=False, headers=headers, timeout=30.0) as client:
             response = await client.get(url)
             response.raise_for_status()
+            response.encoding = 'utf-8'
             html_content = response.text
     except Exception as e:
         return f"Error fetching the earthquake data: {str(e)}"
@@ -157,6 +110,7 @@ async def get_last_earthquake_last7days(format: str = "JSON") -> str:
         async with httpx.AsyncClient(verify=False, headers=headers, timeout=30.0) as client:
             response = await client.get(url)
             response.raise_for_status()
+            response.encoding = 'utf-8'
             data = response.json()
     except Exception as e:
         return f"Error fetching the earthquake data: {str(e)}"
@@ -189,6 +143,62 @@ async def get_last_earthquake_last7days(format: str = "JSON") -> str:
         return yaml.dump(mapped_data, allow_unicode=True, sort_keys=False)
     else:
         return json.dumps(mapped_data, indent=2, ensure_ascii=False)
+
+@mcp.resource("cenais://ems98")
+async def get_ems98_info() -> str:
+    """Get European Macroseismic Scale 1998 Information dynamically from CENAIS."""
+    url = "https://www.cenais.gob.cu/cenais/?page_id=120"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            response.encoding = 'utf-8'
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        title = soup.find(lambda tag: tag.name in ['h1','h2','h3','h4','strong'] and 'Europea 1998' in tag.text)
+        
+        if not title:
+            return "Error: Could not locate the information on the source page."
+            
+        parent = title.parent
+        # Traverse up until we capture the full content div
+        while parent and len(parent.text) < 1000:
+            parent = parent.parent
+            
+        if not parent:
+            return "Error: Could not extract the content structurally."
+            
+        return markdownify.markdownify(str(parent)).strip()
+    except Exception as e:
+        return f"Error fetching information: {str(e)}"
+
+@mcp.resource("cenais://what_to_do_in_earthquake")
+async def get_what_to_do_in_earthquake() -> str:
+    """Guidelines on what to do before, during, and after an earthquake dynamically from CENAIS."""
+    url = "https://www.cenais.gob.cu/cenais/?page_id=86"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            response.encoding = 'utf-8'
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        title = soup.find(lambda tag: tag.name in ['h1','h2','h3','h4','strong'] and 'antes, durante y des' in tag.text.lower())
+        
+        if not title:
+            return "Error: Could not locate the information on the source page."
+            
+        parent = title.parent
+        # Traverse up until we capture the full content div
+        while parent and len(parent.text) < 1000:
+            parent = parent.parent
+            
+        if not parent:
+            return "Error: Could not extract the content structurally."
+            
+        return markdownify.markdownify(str(parent)).strip()
+    except Exception as e:
+        return f"Error fetching information: {str(e)}"
 
 if __name__ == "__main__":
     # Start the server using http
