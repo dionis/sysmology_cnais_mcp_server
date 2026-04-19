@@ -1,14 +1,19 @@
 import json
 import os
+import asyncio
 from typing import List, Optional
-from mcp.server.fastmcp import FastMCP
+
+# En la plataforma Horizon (de Julep/Prefect), el entorno asíncrono choca con la librería oficial
+# 'mcp.server.fastmcp' ya que Horizon espera su propia implementación 'fastmcp'.
+# Esta sintaxis garantiza que en Horizon use la compatible, y evite el error en cli.py
+try:
+    from fastmcp import FastMCP
+except ImportError:
+    from mcp.server.fastmcp import FastMCP
+
 import httpx
 from bs4 import BeautifulSoup
 import yaml
-import nest_asyncio
-
-# Aplicar el parche para permitir bucles de eventos anidados (requerido por Horizon)
-nest_asyncio.apply()
 
 # Initialize the FastMCP server
 mcp = FastMCP("Sysmology CNAIS")
@@ -134,6 +139,56 @@ async def get_last_perceptible_earthquake(format: str = "JSON") -> str:
         return yaml.dump(data, allow_unicode=True, sort_keys=False)
     else:
         return json.dumps(data, indent=2, ensure_ascii=False)
+
+@mcp.tool()
+async def get_last_earthquake_last7days(format: str = "JSON") -> str:
+    """Gets the data of the earthquakes happened in the last 7 days in Cuba, fetched from CENAIS.
+    
+    Args:
+        format: The desired output format, either "JSON" or "YAML". Defaults to "JSON".
+    """
+    url = "https://www.cenais.gob.cu/lastquake/php/lastweek.php"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(verify=False, headers=headers, timeout=30.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+    except Exception as e:
+        return f"Error fetching the earthquake data: {str(e)}"
+        
+    if not isinstance(data, list):
+        return "Error: Unexpected data format received from the server."
+        
+    key_map = {
+        "tiempoutc": "time_utc",
+        "tiempolocal": "time_local",
+        "longitud": "longitude",
+        "latitud": "latitude",
+        "profundidad": "depth",
+        "magnitud": "magnitude",
+        "distancialocalidad": "distance_to_location",
+        "orientacion": "direction",
+        "nombre": "location_name",
+        "provincia": "province"
+    }
+    
+    mapped_data = []
+    for item in data:
+        mapped_item = {}
+        for k, v in item.items():
+            eng_key = key_map.get(k, k)
+            mapped_item[eng_key] = v
+        mapped_data.append(mapped_item)
+
+    if format.upper() == "YAML":
+        return yaml.dump(mapped_data, allow_unicode=True, sort_keys=False)
+    else:
+        return json.dumps(mapped_data, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
     # Start the server using http
