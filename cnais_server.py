@@ -5,6 +5,10 @@ from mcp.server.fastmcp import FastMCP
 import httpx
 from bs4 import BeautifulSoup
 import yaml
+import nest_asyncio
+
+# Aplicar el parche para permitir bucles de eventos anidados (requerido por Horizon)
+nest_asyncio.apply()
 
 # Initialize the FastMCP server
 mcp = FastMCP("Sysmology CNAIS")
