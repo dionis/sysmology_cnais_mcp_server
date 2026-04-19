@@ -133,4 +133,4 @@ async def get_last_perceptible_earthquake(format: str = "JSON") -> str:
 
 if __name__ == "__main__":
     # Start the server using http
-    mcp.run(transport="http")
+    mcp.run(transport="streamable-http")
